@@ -1,0 +1,35 @@
+llm:
+  provider: "openai"  # or "anthropic" or "google"
+  openai_api_key: "your-openai-api-key-here"
+  anthropic_api_key: "your-anthropic-api-key-here"
+  google_api_key: "your-google-api-key-here"
+  model:
+    openai: "gpt-4o"
+    anthropic: "claude-3-5-sonnet-20241022"
+    google: "gemini-2.0-flash-exp"
+
+database:
+  path: "shows.db"
+
+directories:
+  shows_seen: "shows_seen"
+  shows_wishlist: "shows_wishlist"
+
+settings:
+  auto_enrich: true
+  image_extensions:
+    - ".jpg"
+    - ".jpeg"
+    - ".png"
+    - ".webp"
+  user_categories:
+    - "favorites"
+    - "date night shows"
+    - "must see again"
+    - "family friendly"
+  predefined_genres:
+    - "Musical"
+    - "Play"
+    - "Musical Revival"
+    - "Play Revival"
+    - "Off-Broadway"
