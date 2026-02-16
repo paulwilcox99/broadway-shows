@@ -266,9 +266,22 @@ def html_header(title, breadcrumbs=None, home_link="index.html"):
         dd {{ margin-left: 0; margin-top: 0.5rem; }}
         .cast-list {{ margin-left: 1rem; }}
         .cast-member {{ margin: 0.5rem 0; }}
+        .back-to-collections {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+        }}
+        .back-to-collections a {{
+            color: var(--text-muted);
+            text-decoration: none;
+        }}
+        .back-to-collections a:hover {{
+            color: var(--link);
+        }}
     </style>
 </head>
 <body>
+<div class="back-to-collections"><a href="https://pauls-collections.vercel.app">← All Collections</a></div>
 {bc_html}
 <h1>{escape(title)}</h1>
 '''
