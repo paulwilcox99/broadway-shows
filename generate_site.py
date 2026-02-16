@@ -103,59 +103,88 @@ def html_header(title, breadcrumbs=None, home_link="index.html"):
     <title>{escape(title)} - Broadway Shows</title>
     <style>
         :root {{
-            --bg: #f5f5fa;
-            --bg-card: #ffffff;
-            --text: #1a1a2e;
-            --text-muted: #6b6b7c;
+            --bg: #ffffff;
+            --bg-card: #f8f9fa;
+            --text: #2c3e50;
+            --text-muted: #7f8c8d;
             --accent: #c41e3a;
             --accent-hover: #9a0f26;
-            --link: #0f4c81;
-            --link-hover: #082e4f;
-            --border: #d4d4dc;
-            --border-light: #e8e8ef;
+            --link: #c41e3a;
+            --link-hover: #9a0f26;
+            --border: #e0e0e0;
+            --border-light: #f0f0f0;
             --genre-musical: #ffeaa7;
             --genre-play: #dfe6e9;
             --genre-revival: #81ecec;
         }}
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
-            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: Georgia, serif;
             background: var(--bg);
             color: var(--text);
-            line-height: 1.7;
+            line-height: 1.6;
             padding: 2rem;
             max-width: 1200px;
             margin: 0 auto;
         }}
+        .back-to-collections {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+        }}
+        .back-to-collections a {{
+            color: var(--text-muted);
+            text-decoration: none;
+        }}
+        .back-to-collections a:hover {{
+            color: var(--accent);
+        }}
         a {{ color: var(--link); text-decoration: none; }}
         a:hover {{ color: var(--link-hover); text-decoration: underline; }}
         h1 {{
-            color: var(--text);
-            margin-bottom: 1.5rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
             font-size: 2.5rem;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-            border-bottom: 3px solid var(--accent);
-            padding-bottom: 0.75rem;
+            font-weight: normal;
+            text-align: center;
+        }}
+        .subtitle {{
+            text-align: center;
+            color: var(--text-muted);
+            font-style: italic;
+            margin-bottom: 2rem;
+            font-size: 1.1rem;
         }}
         h2 {{
             color: var(--text);
-            margin: 2rem 0 1rem;
+            margin: 2.5rem 0 1.5rem;
             font-size: 1.5rem;
-            font-weight: 600;
+            font-weight: normal;
+            padding-bottom: 0.75rem;
             border-bottom: 2px solid var(--border);
-            padding-bottom: 0.5rem;
         }}
-        h3 {{ color: var(--text); margin: 1.25rem 0 0.75rem; font-size: 1.2rem; font-weight: 600; }}
-        .breadcrumbs {{ margin-bottom: 2rem; color: var(--text-muted); font-size: 0.9rem; }}
-        .breadcrumbs a {{ color: var(--link); }}
+        h3 {{ color: var(--text); margin: 1.25rem 0 0.75rem; font-size: 1.1rem; font-weight: 600; }}
+        .breadcrumbs {{
+            margin-bottom: 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 1rem;
+            background: var(--bg-card);
+            border-radius: 8px;
+        }}
+        .breadcrumbs a {{ color: var(--accent); }}
         .card {{
             background: var(--bg-card);
             padding: 2rem;
             margin-bottom: 1.5rem;
-            border: 1px solid var(--border-light);
+            border: 2px solid var(--border);
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+            transition: all 0.2s ease;
+        }}
+        .card:hover {{
+            border-color: var(--accent);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         }}
         .show-grid {{
             display: grid;
@@ -165,23 +194,28 @@ def html_header(title, breadcrumbs=None, home_link="index.html"):
         .show-card {{
             background: var(--bg-card);
             padding: 1.5rem;
-            border: 1px solid var(--border-light);
+            border: 2px solid var(--border);
             border-radius: 8px;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: all 0.2s ease;
         }}
-        .show-card:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(196,30,58,0.1); }}
-        .show-card h3 {{ margin: 0 0 0.5rem; font-size: 1.1rem; font-weight: 700; }}
+        .show-card:hover {{
+            border-color: var(--accent);
+            box-shadow: 0 4px 12px rgba(196,30,58,0.1);
+            transform: translateY(-2px);
+        }}
+        .show-card h3 {{ margin: 0 0 0.5rem; font-size: 1.05rem; font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
         .show-card h3 a {{ text-decoration: none; color: var(--text); }}
         .show-card h3 a:hover {{ color: var(--accent); }}
-        .show-card .theater {{ color: var(--text-muted); font-size: 0.95rem; margin-bottom: 0.75rem; }}
-        .show-card .meta {{ font-size: 0.9rem; color: var(--text-muted); margin-top: 0.75rem; }}
-        .rating {{ color: var(--accent); font-weight: 600; }}
+        .show-card .theater {{ color: var(--text-muted); font-size: 0.95rem; margin-bottom: 0.75rem; font-style: italic; }}
+        .show-card .meta {{ font-size: 0.85rem; color: var(--text-muted); margin-top: 0.75rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+        .rating {{ color: var(--accent); }}
         .status {{
             display: inline-block;
             padding: 0.2rem 0.6rem;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             font-weight: 600;
             border-radius: 4px;
         }}
@@ -195,7 +229,8 @@ def html_header(title, breadcrumbs=None, home_link="index.html"):
             font-size: 0.75rem;
             margin-right: 0.5rem;
             border-radius: 4px;
-            font-weight: 500;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-weight: 600;
         }}
         .genre-badge.play {{ background: var(--genre-play); }}
         .genre-badge.revival {{ background: var(--genre-revival); }}
@@ -203,80 +238,103 @@ def html_header(title, breadcrumbs=None, home_link="index.html"):
             display: inline-block;
             background: var(--bg);
             color: var(--text-muted);
-            padding: 0.3rem 0.8rem;
+            padding: 0.25rem 0.75rem;
             font-size: 0.85rem;
             margin: 0.25rem;
             border: 1px solid var(--border);
             border-radius: 4px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             text-decoration: none;
+            transition: all 0.2s ease;
         }}
-        .tag:hover {{ background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }}
+        .tag:hover {{ background: var(--accent); color: white; border-color: var(--accent); }}
         .nav-sections {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 1.5rem;
             margin-bottom: 2.5rem;
         }}
         .nav-section {{
             background: var(--bg-card);
             padding: 1.5rem;
-            border: 1px solid var(--border-light);
+            border: 2px solid var(--border);
             border-radius: 8px;
+            transition: all 0.2s ease;
         }}
-        .nav-section h3 {{ margin-bottom: 1rem; color: var(--accent); font-size: 1rem; font-weight: 700; }}
+        .nav-section:hover {{
+            border-color: var(--accent);
+        }}
+        .nav-section h3 {{ margin-bottom: 1rem; color: var(--accent); font-size: 1rem; font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
         .nav-section ul {{ list-style: none; }}
         .nav-section li {{ margin: 0.5rem 0; font-size: 0.95rem; }}
-        .nav-section a {{ text-decoration: none; }}
-        .nav-section a:hover {{ text-decoration: underline; }}
+        .nav-section a {{ text-decoration: none; color: var(--text); }}
+        .nav-section a:hover {{ color: var(--accent); }}
         .stats {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
             gap: 1.5rem;
             margin-bottom: 2.5rem;
-        }}
-        .stat {{
-            background: var(--bg-card);
-            padding: 1.5rem;
-            text-align: center;
-            border: 1px solid var(--border-light);
+            padding: 2rem;
+            background: linear-gradient(135deg, rgba(196,30,58,0.08) 0%, rgba(154,15,38,0.05) 100%);
             border-radius: 8px;
+            border: 1px solid var(--border-light);
         }}
-        .stat-value {{ font-size: 2.5rem; color: var(--accent); font-weight: 700; }}
-        .stat-label {{ font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.5rem; }}
+        .stat {{ text-align: center; }}
+        .stat-value {{
+            display: block;
+            font-size: 2.5rem;
+            color: var(--accent);
+            font-weight: normal;
+            font-family: Georgia, serif;
+        }}
+        .stat-label {{
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            margin-top: 0.5rem;
+        }}
         .timeline-year {{
             margin-bottom: 3rem;
             padding-bottom: 2rem;
-            border-bottom: 2px solid var(--border-light);
+            border-bottom: 2px solid var(--border);
         }}
         .timeline-year h2 {{
             color: var(--accent);
             font-size: 2rem;
             margin-bottom: 1.5rem;
             border: none;
+            text-align: left;
         }}
         .timeline-month {{ margin-bottom: 2rem; }}
         .timeline-month h3 {{
             color: var(--text-muted);
             font-size: 1.2rem;
             margin-bottom: 1rem;
-            font-weight: 600;
+            font-weight: normal;
+            font-style: italic;
         }}
         dl {{ margin: 1.25rem 0; }}
-        dt {{ color: var(--text-muted); font-size: 0.85rem; margin-top: 1rem; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; }}
-        dd {{ margin-left: 0; margin-top: 0.5rem; }}
+        dt {{ color: var(--text-muted); font-size: 0.85rem; margin-top: 1rem; text-transform: uppercase; letter-spacing: 0.03em; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+        dd {{ margin-left: 0; margin-top: 0.25rem; }}
         .cast-list {{ margin-left: 1rem; }}
         .cast-member {{ margin: 0.5rem 0; }}
-        .back-to-collections {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            font-size: 0.85rem;
-            margin-bottom: 1.5rem;
-        }}
-        .back-to-collections a {{
+        footer {{
+            margin-top: 4rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border);
             color: var(--text-muted);
-            text-decoration: none;
+            font-size: 0.85rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            text-align: center;
         }}
-        .back-to-collections a:hover {{
-            color: var(--link);
+        @media (max-width: 768px) {{
+            body {{ padding: 1rem; }}
+            h1 {{ font-size: 2rem; }}
+            .stats {{ grid-template-columns: repeat(2, 1fr); }}
+            .show-grid {{ grid-template-columns: 1fr; }}
         }}
     </style>
 </head>
@@ -291,7 +349,7 @@ def html_footer():
     """Generate HTML footer."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     return f'''
-<footer style="margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; text-align: center;">
+<footer>
     Generated on {timestamp}
 </footer>
 </body>
