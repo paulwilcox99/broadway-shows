@@ -1,124 +1,127 @@
 #!/usr/bin/env python3
 """
-Generate a static website from the shows database.
-Only regenerates if the database has changed since last run.
+Generate a single-page application for the Broadway shows database.
+Outputs: index.html + data.json
 """
 
 import os
-import sys
 import json
 import sqlite3
-import hashlib
-from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
-from html import escape
 
-# Configuration
 DB_PATH = "shows.db"
 OUTPUT_DIR = "site"
-STATE_FILE = ".site_state.json"
-
-
-def get_db_hash(db_path):
-    """Get hash of database file to detect changes."""
-    with open(db_path, 'rb') as f:
-        return hashlib.md5(f.read()).hexdigest()
-
-
-def load_state():
-    """Load previous generation state."""
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-
-def save_state(state):
-    """Save generation state."""
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f)
 
 
 def parse_json_field(value):
-    """Parse a JSON field, returning empty list if invalid."""
     if not value:
         return []
     try:
         result = json.loads(value)
-        if isinstance(result, list):
-            return result
-        return [result]
+        return result if isinstance(result, list) else [result]
     except:
         return [value] if value else []
 
 
-def slugify(text):
-    """Convert text to URL-safe slug."""
-    if not text:
-        return "unknown"
-    return "".join(c if c.isalnum() else "-" for c in text.lower()).strip("-")[:50]
-
-
 def get_all_shows(db_path):
-    """Fetch all shows from database."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM shows ORDER BY show_name")
     shows = [dict(row) for row in cursor.fetchall()]
     conn.close()
-
-    # Parse JSON fields
+    
     for show in shows:
-        show['lead_cast_list'] = parse_json_field(show['lead_cast'])
-        show['tony_awards_list'] = parse_json_field(show['tony_awards'])
-        show['other_awards_list'] = parse_json_field(show['other_awards'])
-        show['musical_numbers_list'] = parse_json_field(show['musical_numbers'])
-        show['themes_list'] = parse_json_field(show['themes'])
-        show['user_categories_list'] = parse_json_field(show['user_categories'])
-        show['llm_categories_list'] = parse_json_field(show['llm_categories'])
-
+        show['cast_list'] = parse_json_field(show.get('notable_cast'))
+        show['awards_list'] = parse_json_field(show.get('awards'))
+        show['songs_list'] = parse_json_field(show.get('famous_songs'))
+    
     return shows
 
 
-# HTML Templates
-def html_header(title, breadcrumbs=None, home_link="index.html"):
-    """Generate HTML header."""
-    bc_html = ""
-    if breadcrumbs:
-        bc_parts = [f'<a href="{home_link}">Home</a>']
-        for name, link in breadcrumbs:
-            if link:
-                bc_parts.append(f'<a href="{link}">{escape(name)}</a>')
-            else:
-                bc_parts.append(escape(name))
-        bc_html = f'<nav class="breadcrumbs">{" → ".join(bc_parts)}</nav>'
+def generate_data_json(shows):
+    data = {
+        'shows': [],
+        'stats': {
+            'total': len(shows),
+            'seen': sum(1 for s in shows if s.get('seen_status') == 'seen'),
+            'wishlist': sum(1 for s in shows if s.get('seen_status') == 'wishlist'),
+        },
+        'theaters': defaultdict(list),
+        'types': defaultdict(list),
+        'years': defaultdict(list),
+    }
+    
+    ratings = [s['rating'] for s in shows if s.get('rating') and s.get('seen_status') == 'seen']
+    data['stats']['avg_rating'] = round(sum(ratings) / len(ratings), 1) if ratings else 0
+    
+    for show in shows:
+        show_data = {
+            'id': show['id'],
+            'name': show['show_name'],
+            'theater': show.get('theater_name') or '',
+            'status': show.get('seen_status') or 'wishlist',
+            'date_attended': show.get('date_attended') or '',
+            'rating': show.get('rating'),
+            'date_added': show['date_added'][:10] if show.get('date_added') else '',
+            'type': show.get('show_type') or '',
+            'music_by': show.get('music_by') or '',
+            'lyrics_by': show.get('lyrics_by') or '',
+            'book_by': show.get('book_by') or '',
+            'premiere_year': show.get('original_premiere_year'),
+            'synopsis': show.get('synopsis') or '',
+            'cast': show['cast_list'],
+            'awards': show['awards_list'],
+            'songs': show['songs_list'],
+            'notes': show.get('personal_notes') or '',
+        }
+        data['shows'].append(show_data)
+        
+        if show.get('theater_name'):
+            if show['id'] not in data['theaters'][show['theater_name']]:
+                data['theaters'][show['theater_name']].append(show['id'])
+        
+        if show.get('show_type'):
+            if show['id'] not in data['types'][show['show_type']]:
+                data['types'][show['show_type']].append(show['id'])
+        
+        if show.get('date_attended'):
+            try:
+                year = show['date_attended'][:4]
+                if show['id'] not in data['years'][year]:
+                    data['years'][year].append(show['id'])
+            except:
+                pass
+    
+    data['stats']['theater_count'] = len(data['theaters'])
+    
+    data['theaters'] = dict(data['theaters'])
+    data['types'] = dict(data['types'])
+    data['years'] = dict(data['years'])
+    
+    return data
 
-    return f'''<!DOCTYPE html>
+
+def generate_html():
+    return '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{escape(title)} - Broadway Shows</title>
+    <title>Paul's Broadway</title>
     <style>
-        :root {{
+        :root {
             --bg: #ffffff;
             --bg-card: #f8f9fa;
             --text: #2c3e50;
             --text-muted: #7f8c8d;
             --accent: #c41e3a;
-            --accent-hover: #9a0f26;
-            --link: #c41e3a;
-            --link-hover: #9a0f26;
+            --accent-hover: #a01830;
             --border: #e0e0e0;
-            --border-light: #f0f0f0;
-            --genre-musical: #ffeaa7;
-            --genre-play: #dfe6e9;
-            --genre-revival: #81ecec;
-        }}
-        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
             font-family: Georgia, serif;
             background: var(--bg);
             color: var(--text);
@@ -126,790 +129,368 @@ def html_header(title, breadcrumbs=None, home_link="index.html"):
             padding: 2rem;
             max-width: 1200px;
             margin: 0 auto;
-        }}
-        .back-to-collections {{
+        }
+        .back-link {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             font-size: 0.85rem;
             margin-bottom: 1.5rem;
-        }}
-        .back-to-collections a {{
-            color: var(--text-muted);
-            text-decoration: none;
-        }}
-        .back-to-collections a:hover {{
-            color: var(--accent);
-        }}
-        a {{ color: var(--link); text-decoration: none; }}
-        a:hover {{ color: var(--link-hover); text-decoration: underline; }}
-        h1 {{
-            color: var(--accent);
-            margin-bottom: 0.5rem;
-            font-size: 2.5rem;
-            font-weight: normal;
-            text-align: center;
-        }}
-        .subtitle {{
-            text-align: center;
-            color: var(--text-muted);
-            font-style: italic;
+        }
+        .back-link a { color: var(--text-muted); text-decoration: none; }
+        .back-link a:hover { color: var(--accent); }
+        h1 { color: var(--accent); font-size: 2.5rem; font-weight: normal; text-align: center; margin-bottom: 0.5rem; }
+        .subtitle { text-align: center; color: var(--text-muted); font-style: italic; margin-bottom: 2rem; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
             margin-bottom: 2rem;
-            font-size: 1.1rem;
-        }}
-        h2 {{
-            color: var(--text);
-            margin: 2.5rem 0 1.5rem;
-            font-size: 1.5rem;
-            font-weight: normal;
-            padding-bottom: 0.75rem;
-            border-bottom: 2px solid var(--border);
-        }}
-        h3 {{ color: var(--text); margin: 1.25rem 0 0.75rem; font-size: 1.1rem; font-weight: 600; }}
-        .breadcrumbs {{
-            margin-bottom: 2rem;
-            color: var(--text-muted);
-            font-size: 0.9rem;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            padding: 1rem;
+        }
+        .stat {
             background: var(--bg-card);
-            border-radius: 8px;
-        }}
-        .breadcrumbs a {{ color: var(--accent); }}
-        .card {{
-            background: var(--bg-card);
-            padding: 2rem;
-            margin-bottom: 1.5rem;
+            padding: 1.25rem;
+            text-align: center;
             border: 2px solid var(--border);
             border-radius: 8px;
-            transition: all 0.2s ease;
-        }}
-        .card:hover {{
-            border-color: var(--accent);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        }}
-        .show-grid {{
+        }
+        .stat-value { font-size: 2rem; color: var(--accent); }
+        .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: -apple-system, sans-serif; }
+        .nav-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 1rem;
+        }
+        .nav-tab {
+            padding: 0.5rem 1rem;
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: -apple-system, sans-serif;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .nav-tab:hover, .nav-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+        .search-box {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            font-family: Georgia, serif;
+        }
+        .search-box:focus { outline: none; border-color: var(--accent); }
+        .filter-section { margin-bottom: 2rem; }
+        .filter-title { font-size: 1.1rem; margin-bottom: 1rem; color: var(--text); }
+        .filter-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .filter-tag {
+            padding: 0.4rem 0.8rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-family: -apple-system, sans-serif;
+            transition: all 0.2s;
+        }
+        .filter-tag:hover { border-color: var(--accent); color: var(--accent); }
+        .filter-tag .count { color: var(--text-muted); margin-left: 0.3rem; }
+        .show-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 1.5rem;
-        }}
-        .show-card {{
+        }
+        .show-card {
             background: var(--bg-card);
             padding: 1.5rem;
             border: 2px solid var(--border);
             border-radius: 8px;
-            transition: all 0.2s ease;
-        }}
-        .show-card:hover {{
-            border-color: var(--accent);
-            box-shadow: 0 4px 12px rgba(196,30,58,0.1);
-            transform: translateY(-2px);
-        }}
-        .show-card h3 {{ margin: 0 0 0.5rem; font-size: 1.05rem; font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
-        .show-card h3 a {{ text-decoration: none; color: var(--text); }}
-        .show-card h3 a:hover {{ color: var(--accent); }}
-        .show-card .theater {{ color: var(--text-muted); font-size: 0.95rem; margin-bottom: 0.75rem; font-style: italic; }}
-        .show-card .meta {{ font-size: 0.85rem; color: var(--text-muted); margin-top: 0.75rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
-        .rating {{ color: var(--accent); }}
-        .status {{
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .show-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(196,30,58,0.1); }
+        .show-card h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.5rem; font-family: -apple-system, sans-serif; }
+        .show-card .theater { color: var(--text-muted); font-style: italic; font-size: 0.95rem; }
+        .show-card .meta { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.75rem; font-family: -apple-system, sans-serif; }
+        .show-card .rating { color: var(--accent); }
+        .status { 
             display: inline-block;
-            padding: 0.2rem 0.6rem;
+            padding: 0.2rem 0.5rem;
             font-size: 0.7rem;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            font-weight: 600;
             border-radius: 4px;
-        }}
-        .status.seen {{ background: #d4edda; color: #155724; }}
-        .status.wishlist {{ background: #fff3cd; color: #856404; }}
-        .genre-badge {{
+            font-family: -apple-system, sans-serif;
+        }
+        .status.seen { background: #d4edda; color: #155724; }
+        .status.wishlist { background: #fff3cd; color: #856404; }
+        .type-badge { 
             display: inline-block;
-            background: var(--genre-musical);
-            color: var(--text);
-            padding: 0.2rem 0.6rem;
-            font-size: 0.75rem;
-            margin-right: 0.5rem;
+            background: var(--accent);
+            color: white;
+            padding: 0.2rem 0.5rem;
             border-radius: 4px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            font-weight: 600;
-        }}
-        .genre-badge.play {{ background: var(--genre-play); }}
-        .genre-badge.revival {{ background: var(--genre-revival); }}
-        .tag {{
-            display: inline-block;
-            background: var(--bg);
-            color: var(--text-muted);
-            padding: 0.25rem 0.75rem;
-            font-size: 0.85rem;
-            margin: 0.25rem;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            text-decoration: none;
-            transition: all 0.2s ease;
-        }}
-        .tag:hover {{ background: var(--accent); color: white; border-color: var(--accent); }}
-        .nav-sections {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2.5rem;
-        }}
-        .nav-section {{
-            background: var(--bg-card);
-            padding: 1.5rem;
-            border: 2px solid var(--border);
-            border-radius: 8px;
-            transition: all 0.2s ease;
-        }}
-        .nav-section:hover {{
-            border-color: var(--accent);
-        }}
-        .nav-section h3 {{ margin-bottom: 1rem; color: var(--accent); font-size: 1rem; font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
-        .nav-section ul {{ list-style: none; }}
-        .nav-section li {{ margin: 0.5rem 0; font-size: 0.95rem; }}
-        .nav-section a {{ text-decoration: none; color: var(--text); }}
-        .nav-section a:hover {{ color: var(--accent); }}
-        .stats {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2.5rem;
-            padding: 2rem;
-            background: linear-gradient(135deg, rgba(196,30,58,0.08) 0%, rgba(154,15,38,0.05) 100%);
-            border-radius: 8px;
-            border: 1px solid var(--border-light);
-        }}
-        .stat {{ text-align: center; }}
-        .stat-value {{
-            display: block;
-            font-size: 2.5rem;
-            color: var(--accent);
-            font-weight: normal;
-            font-family: Georgia, serif;
-        }}
-        .stat-label {{
-            display: block;
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 0.7rem;
             margin-top: 0.5rem;
-        }}
-        .timeline-year {{
-            margin-bottom: 3rem;
-            padding-bottom: 2rem;
-            border-bottom: 2px solid var(--border);
-        }}
-        .timeline-year h2 {{
-            color: var(--accent);
-            font-size: 2rem;
-            margin-bottom: 1.5rem;
+            font-family: -apple-system, sans-serif;
+        }
+        
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            overflow-y: auto;
+            padding: 2rem;
+        }
+        .modal-overlay.active { display: block; }
+        .modal {
+            background: white;
+            max-width: 700px;
+            margin: 0 auto;
+            border-radius: 12px;
+            padding: 2rem;
+            position: relative;
+        }
+        .modal-close {
+            position: absolute;
+            top: 1rem; right: 1rem;
+            background: none;
             border: none;
-            text-align: left;
-        }}
-        .timeline-month {{ margin-bottom: 2rem; }}
-        .timeline-month h3 {{
+            font-size: 1.5rem;
+            cursor: pointer;
             color: var(--text-muted);
-            font-size: 1.2rem;
-            margin-bottom: 1rem;
-            font-weight: normal;
-            font-style: italic;
-        }}
-        dl {{ margin: 1.25rem 0; }}
-        dt {{ color: var(--text-muted); font-size: 0.85rem; margin-top: 1rem; text-transform: uppercase; letter-spacing: 0.03em; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
-        dd {{ margin-left: 0; margin-top: 0.25rem; }}
-        .cast-list {{ margin-left: 1rem; }}
-        .cast-member {{ margin: 0.5rem 0; }}
-        footer {{
-            margin-top: 4rem;
-            padding-top: 2rem;
-            border-top: 1px solid var(--border);
-            color: var(--text-muted);
-            font-size: 0.85rem;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            text-align: center;
-        }}
-        @media (max-width: 768px) {{
-            body {{ padding: 1rem; }}
-            h1 {{ font-size: 2rem; }}
-            .stats {{ grid-template-columns: repeat(2, 1fr); }}
-            .show-grid {{ grid-template-columns: 1fr; }}
-        }}
+        }
+        .modal-close:hover { color: var(--accent); }
+        .modal h2 { color: var(--accent); margin-bottom: 0.5rem; font-weight: normal; }
+        .modal .theater { font-style: italic; color: var(--text-muted); margin-bottom: 1rem; font-size: 1.1rem; }
+        .modal .meta-row { margin: 1rem 0; }
+        .modal .label { font-weight: 600; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; font-family: -apple-system, sans-serif; }
+        .modal .songs { background: var(--bg-card); padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+        .modal .songs ul { margin-left: 1.5rem; }
+        .modal .songs li { margin: 0.3rem 0; }
+        
+        .results-count { color: var(--text-muted); margin-bottom: 1rem; font-family: -apple-system, sans-serif; }
+        footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; text-align: center; font-family: -apple-system, sans-serif; }
     </style>
 </head>
 <body>
-<div class="back-to-collections"><a href="https://pauls-collections.vercel.app">← All Collections</a></div>
-{bc_html}
-<h1>{escape(title)}</h1>
-'''
-
-
-def html_footer():
-    """Generate HTML footer."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    return f'''
-<footer>
-    Generated on {timestamp}
-</footer>
+    <div class="back-link"><a href="https://pauls-collections.vercel.app">← All Collections</a></div>
+    <h1>Paul's Broadway</h1>
+    <p class="subtitle">A personal theater collection</p>
+    
+    <div class="stats" id="stats"></div>
+    
+    <div class="nav-tabs">
+        <button class="nav-tab active" data-view="all">All Shows</button>
+        <button class="nav-tab" data-view="theaters">Theaters</button>
+        <button class="nav-tab" data-view="types">Show Types</button>
+        <button class="nav-tab" data-view="years">Years</button>
+    </div>
+    
+    <input type="text" class="search-box" id="search" placeholder="Search shows, theaters, songs...">
+    
+    <div id="filters" class="filter-section" style="display:none;"></div>
+    <div class="results-count" id="results-count"></div>
+    <div class="show-grid" id="shows"></div>
+    
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <div id="modal-content"></div>
+        </div>
+    </div>
+    
+    <footer>Generated <span id="timestamp"></span></footer>
+    
+    <script>
+    let DATA = null;
+    let currentView = 'all';
+    let currentFilter = null;
+    
+    async function init() {
+        const resp = await fetch('data.json');
+        DATA = await resp.json();
+        document.getElementById('timestamp').textContent = new Date().toLocaleDateString();
+        renderStats();
+        renderShows(DATA.shows);
+        setupEventListeners();
+    }
+    
+    function renderStats() {
+        const s = DATA.stats;
+        document.getElementById('stats').innerHTML = `
+            <div class="stat"><div class="stat-value">${s.total}</div><div class="stat-label">Shows</div></div>
+            <div class="stat"><div class="stat-value">${s.seen}</div><div class="stat-label">Seen</div></div>
+            <div class="stat"><div class="stat-value">${s.wishlist}</div><div class="stat-label">Wishlist</div></div>
+            <div class="stat"><div class="stat-value">${s.avg_rating || 'N/A'}</div><div class="stat-label">Avg Rating</div></div>
+            <div class="stat"><div class="stat-value">${s.theater_count}</div><div class="stat-label">Theaters</div></div>
+        `;
+    }
+    
+    function renderShows(shows) {
+        document.getElementById('results-count').textContent = `${shows.length} show${shows.length !== 1 ? 's' : ''}`;
+        document.getElementById('shows').innerHTML = shows.map(s => `
+            <div class="show-card" onclick="showShow(${s.id})">
+                <h3>${esc(s.name)}</h3>
+                <div class="theater">${esc(s.theater) || 'Unknown theater'}</div>
+                <div class="meta">
+                    <span class="status ${s.status}">${s.status === 'seen' ? 'Seen' : 'Wishlist'}</span>
+                    ${s.date_attended ? ` • ${s.date_attended}` : ''}
+                    ${s.rating ? ` • <span class="rating">${'★'.repeat(s.rating)}${'☆'.repeat(10-s.rating)}</span>` : ''}
+                </div>
+                ${s.type ? `<span class="type-badge">${esc(s.type)}</span>` : ''}
+            </div>
+        `).join('');
+    }
+    
+    function renderFilters(type) {
+        let items = [];
+        if (type === 'theaters') items = Object.entries(DATA.theaters).map(([k,v]) => [k, v.length]).sort((a,b) => b[1]-a[1]);
+        else if (type === 'types') items = Object.entries(DATA.types).map(([k,v]) => [k, v.length]).sort((a,b) => b[1]-a[1]);
+        else if (type === 'years') items = Object.entries(DATA.years).map(([k,v]) => [k, v.length]).sort((a,b) => b[0].localeCompare(a[0]));
+        
+        if (items.length === 0) {
+            document.getElementById('filters').style.display = 'none';
+            return;
+        }
+        
+        document.getElementById('filters').style.display = 'block';
+        document.getElementById('filters').innerHTML = `
+            <div class="filter-title">${type.charAt(0).toUpperCase() + type.slice(1)} (${items.length})</div>
+            <div class="filter-tags">
+                ${items.map(([name, count]) => `<span class="filter-tag" data-filter="${esc(name)}">${esc(name)}<span class="count">(${count})</span></span>`).join('')}
+            </div>
+        `;
+    }
+    
+    function filterShows(type, value) {
+        let ids = [];
+        if (type === 'theaters') ids = DATA.theaters[value] || [];
+        else if (type === 'types') ids = DATA.types[value] || [];
+        else if (type === 'years') ids = DATA.years[value] || [];
+        
+        const shows = DATA.shows.filter(s => ids.includes(s.id));
+        renderShows(shows);
+    }
+    
+    function searchShows(query) {
+        const q = query.toLowerCase();
+        const shows = DATA.shows.filter(s => 
+            s.name.toLowerCase().includes(q) ||
+            (s.theater && s.theater.toLowerCase().includes(q)) ||
+            s.songs.some(x => x.toLowerCase().includes(q)) ||
+            (s.synopsis && s.synopsis.toLowerCase().includes(q))
+        );
+        renderShows(shows);
+    }
+    
+    function showShow(id) {
+        const s = DATA.shows.find(x => x.id === id);
+        if (!s) return;
+        
+        document.getElementById('modal-content').innerHTML = `
+            <h2>${esc(s.name)}</h2>
+            <div class="theater">${esc(s.theater) || 'Unknown theater'}</div>
+            <div class="meta-row">
+                <span class="status ${s.status}">${s.status === 'seen' ? 'Seen' : 'Wishlist'}</span>
+                ${s.type ? ` • <span class="type-badge">${esc(s.type)}</span>` : ''}
+                ${s.date_attended ? ` • Attended: ${s.date_attended}` : ''}
+                ${s.rating ? ` • <span class="rating">${'★'.repeat(s.rating)}${'☆'.repeat(10-s.rating)} ${s.rating}/10</span>` : ''}
+            </div>
+            ${s.premiere_year ? `<div class="meta-row"><span class="label">Premiere:</span> ${s.premiere_year}</div>` : ''}
+            ${s.music_by ? `<div class="meta-row"><span class="label">Music:</span> ${esc(s.music_by)}</div>` : ''}
+            ${s.lyrics_by ? `<div class="meta-row"><span class="label">Lyrics:</span> ${esc(s.lyrics_by)}</div>` : ''}
+            ${s.book_by ? `<div class="meta-row"><span class="label">Book:</span> ${esc(s.book_by)}</div>` : ''}
+            ${s.synopsis ? `<div class="meta-row"><span class="label">Synopsis</span><p>${esc(s.synopsis)}</p></div>` : ''}
+            ${s.cast.length ? `<div class="meta-row"><span class="label">Notable Cast:</span> ${esc(s.cast.join(', '))}</div>` : ''}
+            ${s.songs.length ? `<div class="meta-row"><span class="label">Famous Songs</span><div class="songs"><ul>${s.songs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div></div>` : ''}
+            ${s.awards.length ? `<div class="meta-row"><span class="label">Awards:</span> ${esc(s.awards.join(', '))}</div>` : ''}
+            ${s.notes ? `<div class="meta-row"><span class="label">Notes:</span> ${esc(s.notes)}</div>` : ''}
+            <div class="meta-row" style="color: var(--text-muted); font-size: 0.85rem;">Added: ${s.date_added}</div>
+        `;
+        document.getElementById('modal').classList.add('active');
+    }
+    
+    function closeModal() {
+        document.getElementById('modal').classList.remove('active');
+    }
+    
+    function setupEventListeners() {
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentView = tab.dataset.view;
+                currentFilter = null;
+                document.getElementById('search').value = '';
+                
+                if (currentView === 'all') {
+                    document.getElementById('filters').style.display = 'none';
+                    renderShows(DATA.shows);
+                } else {
+                    renderFilters(currentView);
+                    renderShows(DATA.shows);
+                }
+            });
+        });
+        
+        document.getElementById('filters').addEventListener('click', e => {
+            if (e.target.classList.contains('filter-tag')) {
+                currentFilter = e.target.dataset.filter;
+                filterShows(currentView, currentFilter);
+            }
+        });
+        
+        document.getElementById('search').addEventListener('input', e => {
+            if (e.target.value) searchShows(e.target.value);
+            else if (currentFilter) filterShows(currentView, currentFilter);
+            else renderShows(DATA.shows);
+        });
+        
+        document.getElementById('modal').addEventListener('click', e => {
+            if (e.target.id === 'modal') closeModal();
+        });
+        
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeModal();
+        });
+    }
+    
+    function esc(s) { 
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); 
+    }
+    
+    init();
+    </script>
 </body>
-</html>
-'''
+</html>'''
 
 
-def generate_show_page(show, output_dir):
-    """Generate individual show page."""
-    slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-    filepath = os.path.join(output_dir, "shows", f"{slug}.html")
-
-    html = html_header(show['show_name'], [("Shows", "../shows.html"), (show['show_name'], None)], home_link="../index.html")
-
-    html += '<div class="card">'
-    html += f'<p class="theater" style="font-size: 1.1rem; color: var(--text-muted); margin-bottom: 1rem;">📍 {escape(show["theater_name"])}</p>'
-
-    # Status and rating
-    html += '<p style="margin: 1rem 0;">'
-    status_class = show['seen_status']
-    status_text = "Seen" if status_class == "seen" else "Wishlist"
-    html += f'<span class="status {status_class}">{status_text}</span>'
-
-    if show['genre']:
-        genre_class = "play" if "Play" in show['genre'] else ("revival" if "Revival" in show['genre'] else "musical")
-        html += f' <span class="genre-badge {genre_class}">{escape(show["genre"])}</span>'
-
-    if show['rating']:
-        html += f' <span class="rating">{"★" * show["rating"]}{"☆" * (10 - show["rating"])}</span> {show["rating"]}/10'
-    html += '</p>'
-
-    html += '<dl>'
-
-    if show['date_attended']:
-        html += f'<dt>Date Attended</dt><dd>{escape(show["date_attended"])}</dd>'
-
-    if show['opening_date']:
-        html += f'<dt>Opening Date</dt><dd>{escape(show["opening_date"])}</dd>'
-
-    if show['closing_date']:
-        html += f'<dt>Closing/Closed</dt><dd>{escape(show["closing_date"])}</dd>'
-
-    if show['production_type']:
-        html += f'<dt>Production Type</dt><dd>{escape(show["production_type"])}</dd>'
-
-    if show['running_time']:
-        html += f'<dt>Running Time</dt><dd>{show["running_time"]} minutes</dd>'
-
-    html += '</dl>'
-
-    if show['plot_summary']:
-        html += f'<h2>Plot Summary</h2><p>{escape(show["plot_summary"])}</p>'
-
-    # Cast & Creative Team
-    if show['lead_cast_list'] or show['director'] or show['choreographer']:
-        html += '<h2>Cast & Creative Team</h2>'
-
-        if show['director']:
-            html += f'<p><strong>Director:</strong> {escape(show["director"])}</p>'
-        if show['choreographer']:
-            html += f'<p><strong>Choreographer:</strong> {escape(show["choreographer"])}</p>'
-        if show['composer']:
-            html += f'<p><strong>Composer:</strong> {escape(show["composer"])}</p>'
-        if show['lyricist']:
-            html += f'<p><strong>Lyricist:</strong> {escape(show["lyricist"])}</p>'
-        if show['book_writer']:
-            html += f'<p><strong>Book:</strong> {escape(show["book_writer"])}</p>'
-
-        if show['lead_cast_list']:
-            html += '<h3>Lead Cast</h3><div class="cast-list">'
-            for cast in show['lead_cast_list']:
-                if isinstance(cast, dict):
-                    role = cast.get('role', 'Unknown')
-                    actor = cast.get('actor', 'Unknown')
-                    html += f'<div class="cast-member"><strong>{escape(role)}:</strong> {escape(actor)}</div>'
-            html += '</div>'
-
-    if show['tony_awards_list'] or show['other_awards_list']:
-        html += '<h2>Awards</h2>'
-        if show['tony_awards_list']:
-            html += '<h3>Tony Awards</h3><ul>'
-            for award in show['tony_awards_list']:
-                html += f'<li>{escape(str(award))}</li>'
-            html += '</ul>'
-        if show['other_awards_list']:
-            html += '<h3>Other Awards</h3><ul>'
-            for award in show['other_awards_list']:
-                html += f'<li>{escape(str(award))}</li>'
-            html += '</ul>'
-
-    if show.get('major_theme') or show['themes_list']:
-        html += '<h2>Themes</h2>'
-        if show.get('major_theme'):
-            major_slug = slugify(show['major_theme'])
-            html += f'<p style="margin-bottom: 0.75rem;"><strong style="color: var(--text-muted); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;">Major Theme:</strong> <a href="../major-themes/{major_slug}.html" class="tag" style="background: var(--accent); color: white; border-color: var(--accent);">{escape(show["major_theme"])}</a></p>'
-        if show['themes_list']:
-            html += '<p>'
-            for theme in show['themes_list']:
-                theme_slug = slugify(str(theme))
-                html += f'<a href="../themes/{theme_slug}.html" class="tag">{escape(str(theme))}</a>'
-            html += '</p>'
-
-    if show['user_categories_list']:
-        html += '<h2>Categories</h2><p>'
-        for cat in show['user_categories_list']:
-            cat_slug = slugify(str(cat))
-            html += f'<a href="../categories/{cat_slug}.html" class="tag">{escape(str(cat))}</a>'
-        html += '</p>'
-
-    if show['personal_notes']:
-        html += f'<h2>Personal Notes</h2><p>{escape(show["personal_notes"])}</p>'
-
-    html += f'<p style="margin-top: 1.5rem; font-size: 0.85rem; color: var(--text-muted);">Added: {show["date_added"][:10]}</p>'
-
-    html += '</div>'
-    html += html_footer()
-
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, 'w') as f:
-        f.write(html)
-
-    return slug
-
-
-def generate_list_page(title, items, output_path, breadcrumbs, intro=""):
-    """Generate a list page (theaters, genres, categories index)."""
-    html = html_header(title, breadcrumbs)
-
-    if intro:
-        html += f'<p style="margin-bottom: 1.5rem; color: var(--text-muted);">{intro}</p>'
-
-    html += '<ul style="list-style: none; columns: 2; column-gap: 2rem;">'
-    for name, link, count in sorted(items, key=lambda x: x[0].lower()):
-        html += f'<li style="margin: 0.5rem 0;"><a href="{link}">{escape(name)}</a> <span style="color: var(--text-muted);">({count})</span></li>'
-    html += '</ul>'
-
-    html += html_footer()
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, 'w') as f:
-        f.write(html)
-
-
-def generate_group_page(title, shows, output_path, breadcrumbs, home_link="index.html"):
-    """Generate a page showing a group of shows."""
-    html = html_header(title, breadcrumbs, home_link=home_link)
-
-    html += f'<p style="margin-bottom: 1.5rem; color: var(--text-muted);">{len(shows)} show(s)</p>'
-
-    html += '<div class="show-grid">'
-    for show in sorted(shows, key=lambda s: s['show_name'].lower()):
-        slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-
-        html += f'''<div class="show-card">
-            <h3><a href="../shows/{slug}.html">{escape(show['show_name'])}</a></h3>
-            <p class="theater">📍 {escape(show['theater_name'])}</p>'''
-        
-        if show.get('major_theme'):
-            major_slug = slugify(show['major_theme'])
-            html += f'<p style="margin: 0.5rem 0;"><a href="../major-themes/{major_slug}.html" class="tag" style="font-size: 0.75rem;">{escape(show["major_theme"])}</a></p>'
-        
-        html += '<p class="meta">'
-        status_class = show['seen_status']
-        status_text = "Seen" if status_class == "seen" else "Wishlist"
-        html += f'<span class="status {status_class}">{status_text}</span>'
-
-        if show['rating']:
-            html += f' <span class="rating">{"★" * show["rating"]}</span>'
-
-        html += '</p></div>'
-    html += '</div>'
-
-    html += html_footer()
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, 'w') as f:
-        f.write(html)
-
-
-def generate_theater_page(theater_name, theater_shows, output_path, breadcrumbs, home_link="index.html"):
-    """Generate enhanced theater page with statistics."""
-    html = html_header(theater_name, breadcrumbs, home_link=home_link)
-
-    seen_shows = [s for s in theater_shows if s['seen_status'] == 'seen']
-    rated_shows = [s for s in seen_shows if s['rating']]
-    avg_rating = sum(s['rating'] for s in rated_shows) / len(rated_shows) if rated_shows else 0
-
-    html += f'''<div class="stats">
-        <div class="stat"><div class="stat-value">{len(theater_shows)}</div><div class="stat-label">Total Shows</div></div>
-        <div class="stat"><div class="stat-value">{len(seen_shows)}</div><div class="stat-label">Seen</div></div>
-        <div class="stat"><div class="stat-value">{avg_rating:.1f}</div><div class="stat-label">Avg Rating</div></div>
-    </div>'''
-
-    html += '<div class="show-grid">'
-    for show in sorted(theater_shows, key=lambda s: s.get('date_attended') or '9999', reverse=True):
-        slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-
-        html += f'''<div class="show-card">
-            <h3><a href="../shows/{slug}.html">{escape(show['show_name'])}</a></h3>'''
-
-        if show['date_attended']:
-            html += f'<p class="theater">📅 {escape(show["date_attended"])}</p>'
-
-        html += '<p class="meta">'
-
-        status_class = show['seen_status']
-        status_text = "Seen" if status_class == "seen" else "Wishlist"
-        html += f'<span class="status {status_class}">{status_text}</span>'
-
-        if show['rating']:
-            html += f' <span class="rating">{"★" * show["rating"]}</span>'
-
-        html += '</p></div>'
-    html += '</div>'
-
-    html += html_footer()
-
-    with open(output_path, 'w') as f:
-        f.write(html)
-
-
-def generate_timeline(shows, output_dir):
-    """Generate timeline view grouped by year and month."""
-    html = html_header("Timeline", [("Timeline", None)])
-
-    # Separate seen shows with dates from wishlist
-    seen_shows = [s for s in shows if s['seen_status'] == 'seen' and s['date_attended']]
-    wishlist_shows = [s for s in shows if s['seen_status'] == 'wishlist']
-
-    # Group by year and month
-    timeline = defaultdict(lambda: defaultdict(list))
-    for show in seen_shows:
-        try:
-            date = datetime.fromisoformat(show['date_attended'])
-            year = date.year
-            month = date.strftime('%B')  # Full month name
-            timeline[year][month].append(show)
-        except:
-            pass
-
-    # Wishlist section
-    if wishlist_shows:
-        html += '<div class="timeline-year">'
-        html += '<h2>📌 Upcoming / Wishlist</h2>'
-        html += '<div class="show-grid">'
-        for show in sorted(wishlist_shows, key=lambda s: s['show_name'].lower()):
-            slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-            html += f'''<div class="show-card">
-                <h3><a href="shows/{slug}.html">{escape(show['show_name'])}</a></h3>
-                <p class="theater">📍 {escape(show['theater_name'])}</p>
-            </div>'''
-        html += '</div></div>'
-
-    # Year sections (most recent first)
-    for year in sorted(timeline.keys(), reverse=True):
-        html += f'<div class="timeline-year"><h2>{year}</h2>'
-
-        # Month sections within year
-        month_order = ['January', 'February', 'March', 'April', 'May', 'June',
-                      'July', 'August', 'September', 'October', 'November', 'December']
-
-        for month in month_order:
-            if month not in timeline[year]:
-                continue
-
-            month_shows = timeline[year][month]
-            html += f'<div class="timeline-month"><h3>{month}</h3>'
-            html += '<div class="show-grid">'
-
-            for show in sorted(month_shows, key=lambda s: s['date_attended'], reverse=True):
-                slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-                html += f'''<div class="show-card">
-                    <h3><a href="shows/{slug}.html">{escape(show['show_name'])}</a></h3>
-                    <p class="theater">📍 {escape(show['theater_name'])}</p>'''
-
-                if show['date_attended']:
-                    html += f'<p class="theater">📅 {escape(show["date_attended"])}</p>'
-
-                html += '<p class="meta">'
-                if show['rating']:
-                    html += f'<span class="rating">{"★" * show["rating"]}</span> {show["rating"]}/10'
-                html += '</p></div>'
-
-            html += '</div></div>'
-
-        html += '</div>'
-
-    html += html_footer()
-
-    with open(os.path.join(output_dir, "timeline.html"), 'w') as f:
-        f.write(html)
-
-
-def generate_shows_index(shows, output_dir):
-    """Generate all shows index page."""
-    html = html_header("All Shows", [("All Shows", None)])
-
-    seen_count = sum(1 for s in shows if s['seen_status'] == 'seen')
-    wishlist_count = len(shows) - seen_count
-
-    html += f'''<div class="stats">
-        <div class="stat"><div class="stat-value">{len(shows)}</div><div class="stat-label">Total Shows</div></div>
-        <div class="stat"><div class="stat-value">{seen_count}</div><div class="stat-label">Seen</div></div>
-        <div class="stat"><div class="stat-value">{wishlist_count}</div><div class="stat-label">Wishlist</div></div>
-    </div>'''
-
-    html += '<div class="show-grid">'
-    for show in sorted(shows, key=lambda s: s['show_name'].lower()):
-        slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-
-        html += f'''<div class="show-card">
-            <h3><a href="shows/{slug}.html">{escape(show['show_name'])}</a></h3>
-            <p class="theater">📍 {escape(show['theater_name'])}</p>'''
-        
-        if show.get('major_theme'):
-            major_slug = slugify(show['major_theme'])
-            html += f'<p style="margin: 0.5rem 0;"><a href="major-themes/{major_slug}.html" class="tag" style="font-size: 0.75rem;">{escape(show["major_theme"])}</a></p>'
-        
-        html += '<p class="meta">'
-        status_class = show['seen_status']
-        status_text = "Seen" if status_class == "seen" else "Wishlist"
-        html += f'<span class="status {status_class}">{status_text}</span>'
-
-        if show['rating']:
-            html += f' <span class="rating">{"★" * show["rating"]}</span>'
-
-        html += '</p></div>'
-    html += '</div>'
-
-    html += html_footer()
-
-    with open(os.path.join(output_dir, "shows.html"), 'w') as f:
-        f.write(html)
-
-
-def generate_index(shows, theaters_count, genres_count, themes_count, major_themes_count, categories_count, output_dir):
-    """Generate main index page with statistics dashboard."""
-    html = html_header("Broadway Shows Collection")
-
-    seen_shows = [s for s in shows if s['seen_status'] == 'seen']
-    wishlist_shows = [s for s in shows if s['seen_status'] == 'wishlist']
-    rated_shows = [s for s in seen_shows if s['rating']]
-    avg_rating = sum(s['rating'] for s in rated_shows) / len(rated_shows) if rated_shows else 0
-
-    # Calculate shows per year
-    years_with_shows = set()
-    for show in seen_shows:
-        if show['date_attended']:
-            try:
-                year = datetime.fromisoformat(show['date_attended']).year
-                years_with_shows.add(year)
-            except:
-                pass
-    shows_per_year = len(seen_shows) / len(years_with_shows) if years_with_shows else 0
-
-    html += f'''<div class="stats">
-        <div class="stat"><div class="stat-value">{len(shows)}</div><div class="stat-label">Total Shows</div></div>
-        <div class="stat"><div class="stat-value">{len(seen_shows)}</div><div class="stat-label">Seen</div></div>
-        <div class="stat"><div class="stat-value">{len(wishlist_shows)}</div><div class="stat-label">Wishlist</div></div>
-        <div class="stat"><div class="stat-value">{theaters_count}</div><div class="stat-label">Theaters</div></div>
-        <div class="stat"><div class="stat-value">{avg_rating:.1f}</div><div class="stat-label">Avg Rating</div></div>
-        <div class="stat"><div class="stat-value">{shows_per_year:.1f}</div><div class="stat-label">Shows/Year</div></div>
-    </div>'''
-
-    html += '<div class="nav-sections">'
-
-    html += f'''<div class="nav-section">
-        <h3>🎭 Browse</h3>
-        <ul>
-            <li><a href="shows.html">All Shows ({len(shows)})</a></li>
-            <li><a href="timeline.html">Timeline View</a></li>
-            <li><a href="theaters.html">By Theater ({theaters_count})</a></li>
-            <li><a href="genres.html">By Genre ({genres_count})</a></li>
-            <li><a href="major-themes.html">By Major Theme ({major_themes_count})</a></li>
-            <li><a href="themes.html">By Theme ({themes_count})</a></li>
-            <li><a href="categories.html">By Category ({categories_count})</a></li>
-        </ul>
-    </div>'''
-
-    # Recently added
-    recent = sorted(shows, key=lambda s: s['date_added'], reverse=True)[:5]
-    html += '<div class="nav-section"><h3>🕐 Recently Added</h3><ul>'
-    for show in recent:
-        slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-        html += f'<li><a href="shows/{slug}.html">{escape(show["show_name"])}</a></li>'
-    html += '</ul></div>'
-
-    # Top rated
-    top_rated = sorted(rated_shows, key=lambda s: s['rating'], reverse=True)[:5]
-    if top_rated:
-        html += '<div class="nav-section"><h3>⭐ Top Rated</h3><ul>'
-        for show in top_rated:
-            slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-            html += f'<li><a href="shows/{slug}.html">{escape(show["show_name"])}</a> ({show["rating"]}/10)</li>'
-        html += '</ul></div>'
-
-    # Wishlist
-    if wishlist_shows:
-        html += '<div class="nav-section"><h3>📌 Wishlist</h3><ul>'
-        for show in wishlist_shows[:5]:
-            slug = f"show-{show['id']}-{slugify(show['show_name'])}"
-            html += f'<li><a href="shows/{slug}.html">{escape(show["show_name"])}</a></li>'
-        html += '</ul></div>'
-
-    html += '</div>'
-    html += html_footer()
-
-    with open(os.path.join(output_dir, "index.html"), 'w') as f:
-        f.write(html)
-
-
-def generate_site(force=False):
-    """Generate the complete static site."""
-    # Check if regeneration needed
-    if not os.path.exists(DB_PATH):
-        print(f"Error: Database not found at {DB_PATH}")
-        return False
-
-    current_hash = get_db_hash(DB_PATH)
-    state = load_state()
-
-    if not force and state.get('db_hash') == current_hash:
-        print("Database unchanged. Use --force to regenerate anyway.")
-        return True
-
-    print("Generating site...")
-
-    # Create output directory
+def generate_site():
+    print("Generating broadway SPA...")
+    
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    os.makedirs(os.path.join(OUTPUT_DIR, "shows"), exist_ok=True)
-    os.makedirs(os.path.join(OUTPUT_DIR, "theaters"), exist_ok=True)
-    os.makedirs(os.path.join(OUTPUT_DIR, "genres"), exist_ok=True)
-    os.makedirs(os.path.join(OUTPUT_DIR, "themes"), exist_ok=True)
-    os.makedirs(os.path.join(OUTPUT_DIR, "major-themes"), exist_ok=True)
-    os.makedirs(os.path.join(OUTPUT_DIR, "categories"), exist_ok=True)
-
-    # Get all shows
+    
     shows = get_all_shows(DB_PATH)
     print(f"Found {len(shows)} shows")
-
-    # Generate individual show pages
-    for show in shows:
-        generate_show_page(show, OUTPUT_DIR)
-    print(f"Generated {len(shows)} show pages")
-
-    # Build indexes
-    theaters_index = defaultdict(list)
-    genres_index = defaultdict(list)
-    categories_index = defaultdict(list)
-
-    for show in shows:
-        if show['theater_name']:
-            theaters_index[show['theater_name']].append(show)
-        if show['genre']:
-            genres_index[show['genre']].append(show)
-        for cat in show['user_categories_list']:
-            if cat:
-                categories_index[cat].append(show)
-
-    # Generate theater pages (enhanced)
-    theater_items = []
-    for theater, theater_shows in theaters_index.items():
-        slug = slugify(theater)
-        filepath = os.path.join(OUTPUT_DIR, "theaters", f"{slug}.html")
-        generate_theater_page(theater, theater_shows, filepath, [("Theaters", "../theaters.html"), (theater, None)], home_link="../index.html")
-        theater_items.append((theater, f"theaters/{slug}.html", len(theater_shows)))
-
-    generate_list_page("Theaters", theater_items,
-                      os.path.join(OUTPUT_DIR, "theaters.html"),
-                      [("Theaters", None)],
-                      f"{len(theaters_index)} theaters visited")
-    print(f"Generated {len(theaters_index)} theater pages")
-
-    # Generate genre pages
-    genre_items = []
-    for genre, genre_shows in genres_index.items():
-        slug = slugify(genre)
-        filepath = os.path.join(OUTPUT_DIR, "genres", f"{slug}.html")
-        generate_group_page(genre, genre_shows, filepath, [("Genres", "../genres.html"), (genre, None)], home_link="../index.html")
-        genre_items.append((genre, f"genres/{slug}.html", len(genre_shows)))
-
-    generate_list_page("Genres", genre_items,
-                      os.path.join(OUTPUT_DIR, "genres.html"),
-                      [("Genres", None)],
-                      f"{len(genres_index)} genres")
-    print(f"Generated {len(genres_index)} genre pages")
-
-    # Generate theme pages
-    themes_index = defaultdict(list)
-    for show in shows:
-        for theme in show['themes_list']:
-            if theme:
-                themes_index[theme].append(show)
     
-    theme_items = []
-    for theme, theme_shows in themes_index.items():
-        slug = slugify(theme)
-        filepath = os.path.join(OUTPUT_DIR, "themes", f"{slug}.html")
-        generate_group_page(theme, theme_shows, filepath, [("Themes", "../themes.html"), (theme, None)], home_link="../index.html")
-        theme_items.append((theme, f"themes/{slug}.html", len(theme_shows)))
+    data = generate_data_json(shows)
+    with open(os.path.join(OUTPUT_DIR, 'data.json'), 'w') as f:
+        json.dump(data, f)
+    print("Generated data.json")
     
-    generate_list_page("Themes", theme_items,
-                      os.path.join(OUTPUT_DIR, "themes.html"),
-                      [("Themes", None)],
-                      f"{len(themes_index)} themes across your shows")
-    print(f"Generated {len(themes_index)} theme pages")
-
-    # Generate major theme pages
-    major_themes_index = defaultdict(list)
-    for show in shows:
-        if show.get('major_theme'):
-            major_themes_index[show['major_theme']].append(show)
+    with open(os.path.join(OUTPUT_DIR, 'index.html'), 'w') as f:
+        f.write(generate_html())
+    print("Generated index.html")
     
-    major_theme_items = []
-    for major_theme, mt_shows in major_themes_index.items():
-        slug = slugify(major_theme)
-        filepath = os.path.join(OUTPUT_DIR, "major-themes", f"{slug}.html")
-        generate_group_page(major_theme, mt_shows, filepath, [("Major Themes", "../major-themes.html"), (major_theme, None)], home_link="../index.html")
-        major_theme_items.append((major_theme, f"major-themes/{slug}.html", len(mt_shows)))
-    
-    generate_list_page("Major Themes", major_theme_items,
-                      os.path.join(OUTPUT_DIR, "major-themes.html"),
-                      [("Major Themes", None)],
-                      f"{len(major_themes_index)} major theme categories")
-    print(f"Generated {len(major_themes_index)} major theme pages")
-
-    # Generate category pages
-    category_items = []
-    for cat, cat_shows in categories_index.items():
-        slug = slugify(cat)
-        filepath = os.path.join(OUTPUT_DIR, "categories", f"{slug}.html")
-        generate_group_page(cat, cat_shows, filepath, [("Categories", "../categories.html"), (cat, None)], home_link="../index.html")
-        category_items.append((cat, f"categories/{slug}.html", len(cat_shows)))
-
-    generate_list_page("Categories", category_items,
-                      os.path.join(OUTPUT_DIR, "categories.html"),
-                      [("Categories", None)],
-                      f"{len(categories_index)} categories")
-    print(f"Generated {len(categories_index)} category pages")
-
-    # Generate timeline view
-    generate_timeline(shows, OUTPUT_DIR)
-    print("Generated timeline view")
-
-    # Generate all shows page
-    generate_shows_index(shows, OUTPUT_DIR)
-
-    # Generate main index
-    generate_index(shows, len(theaters_index), len(genres_index), len(themes_index), len(major_themes_index), len(categories_index), OUTPUT_DIR)
-
-    # Save state
-    save_state({'db_hash': current_hash, 'generated_at': datetime.now().isoformat()})
-
-    print(f"\n✓ Site generated in '{OUTPUT_DIR}/'")
-    print(f"  Open {OUTPUT_DIR}/index.html to view")
-
-    return True
+    print(f"\n✓ Site generated in '{OUTPUT_DIR}/' (2 files)")
 
 
 if __name__ == "__main__":
-    force = "--force" in sys.argv
-    success = generate_site(force=force)
-    sys.exit(0 if success else 1)
+    generate_site()
