@@ -440,11 +440,17 @@ def generate_show_page(show, output_dir):
                 html += f'<li>{escape(str(award))}</li>'
             html += '</ul>'
 
-    if show['themes_list']:
-        html += '<h2>Themes</h2><p>'
-        for theme in show['themes_list']:
-            html += f'<span class="tag">{escape(str(theme))}</span>'
-        html += '</p>'
+    if show.get('major_theme') or show['themes_list']:
+        html += '<h2>Themes</h2>'
+        if show.get('major_theme'):
+            major_slug = slugify(show['major_theme'])
+            html += f'<p style="margin-bottom: 0.75rem;"><strong style="color: var(--text-muted); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;">Major Theme:</strong> <a href="../major-themes/{major_slug}.html" class="tag" style="background: var(--accent); color: white; border-color: var(--accent);">{escape(show["major_theme"])}</a></p>'
+        if show['themes_list']:
+            html += '<p>'
+            for theme in show['themes_list']:
+                theme_slug = slugify(str(theme))
+                html += f'<a href="../themes/{theme_slug}.html" class="tag">{escape(str(theme))}</a>'
+            html += '</p>'
 
     if show['user_categories_list']:
         html += '<h2>Categories</h2><p>'
@@ -499,9 +505,13 @@ def generate_group_page(title, shows, output_path, breadcrumbs, home_link="index
 
         html += f'''<div class="show-card">
             <h3><a href="../shows/{slug}.html">{escape(show['show_name'])}</a></h3>
-            <p class="theater">📍 {escape(show['theater_name'])}</p>
-            <p class="meta">'''
-
+            <p class="theater">📍 {escape(show['theater_name'])}</p>'''
+        
+        if show.get('major_theme'):
+            major_slug = slugify(show['major_theme'])
+            html += f'<p style="margin: 0.5rem 0;"><a href="../major-themes/{major_slug}.html" class="tag" style="font-size: 0.75rem;">{escape(show["major_theme"])}</a></p>'
+        
+        html += '<p class="meta">'
         status_class = show['seen_status']
         status_text = "Seen" if status_class == "seen" else "Wishlist"
         html += f'<span class="status {status_class}">{status_text}</span>'
@@ -652,9 +662,13 @@ def generate_shows_index(shows, output_dir):
 
         html += f'''<div class="show-card">
             <h3><a href="shows/{slug}.html">{escape(show['show_name'])}</a></h3>
-            <p class="theater">📍 {escape(show['theater_name'])}</p>
-            <p class="meta">'''
-
+            <p class="theater">📍 {escape(show['theater_name'])}</p>'''
+        
+        if show.get('major_theme'):
+            major_slug = slugify(show['major_theme'])
+            html += f'<p style="margin: 0.5rem 0;"><a href="major-themes/{major_slug}.html" class="tag" style="font-size: 0.75rem;">{escape(show["major_theme"])}</a></p>'
+        
+        html += '<p class="meta">'
         status_class = show['seen_status']
         status_text = "Seen" if status_class == "seen" else "Wishlist"
         html += f'<span class="status {status_class}">{status_text}</span>'
@@ -671,7 +685,7 @@ def generate_shows_index(shows, output_dir):
         f.write(html)
 
 
-def generate_index(shows, theaters_count, genres_count, categories_count, output_dir):
+def generate_index(shows, theaters_count, genres_count, themes_count, major_themes_count, categories_count, output_dir):
     """Generate main index page with statistics dashboard."""
     html = html_header("Broadway Shows Collection")
 
@@ -709,6 +723,8 @@ def generate_index(shows, theaters_count, genres_count, categories_count, output
             <li><a href="timeline.html">Timeline View</a></li>
             <li><a href="theaters.html">By Theater ({theaters_count})</a></li>
             <li><a href="genres.html">By Genre ({genres_count})</a></li>
+            <li><a href="major-themes.html">By Major Theme ({major_themes_count})</a></li>
+            <li><a href="themes.html">By Theme ({themes_count})</a></li>
             <li><a href="categories.html">By Category ({categories_count})</a></li>
         </ul>
     </div>'''
@@ -766,6 +782,8 @@ def generate_site(force=False):
     os.makedirs(os.path.join(OUTPUT_DIR, "shows"), exist_ok=True)
     os.makedirs(os.path.join(OUTPUT_DIR, "theaters"), exist_ok=True)
     os.makedirs(os.path.join(OUTPUT_DIR, "genres"), exist_ok=True)
+    os.makedirs(os.path.join(OUTPUT_DIR, "themes"), exist_ok=True)
+    os.makedirs(os.path.join(OUTPUT_DIR, "major-themes"), exist_ok=True)
     os.makedirs(os.path.join(OUTPUT_DIR, "categories"), exist_ok=True)
 
     # Get all shows
@@ -819,6 +837,45 @@ def generate_site(force=False):
                       f"{len(genres_index)} genres")
     print(f"Generated {len(genres_index)} genre pages")
 
+    # Generate theme pages
+    themes_index = defaultdict(list)
+    for show in shows:
+        for theme in show['themes_list']:
+            if theme:
+                themes_index[theme].append(show)
+    
+    theme_items = []
+    for theme, theme_shows in themes_index.items():
+        slug = slugify(theme)
+        filepath = os.path.join(OUTPUT_DIR, "themes", f"{slug}.html")
+        generate_group_page(theme, theme_shows, filepath, [("Themes", "../themes.html"), (theme, None)], home_link="../index.html")
+        theme_items.append((theme, f"themes/{slug}.html", len(theme_shows)))
+    
+    generate_list_page("Themes", theme_items,
+                      os.path.join(OUTPUT_DIR, "themes.html"),
+                      [("Themes", None)],
+                      f"{len(themes_index)} themes across your shows")
+    print(f"Generated {len(themes_index)} theme pages")
+
+    # Generate major theme pages
+    major_themes_index = defaultdict(list)
+    for show in shows:
+        if show.get('major_theme'):
+            major_themes_index[show['major_theme']].append(show)
+    
+    major_theme_items = []
+    for major_theme, mt_shows in major_themes_index.items():
+        slug = slugify(major_theme)
+        filepath = os.path.join(OUTPUT_DIR, "major-themes", f"{slug}.html")
+        generate_group_page(major_theme, mt_shows, filepath, [("Major Themes", "../major-themes.html"), (major_theme, None)], home_link="../index.html")
+        major_theme_items.append((major_theme, f"major-themes/{slug}.html", len(mt_shows)))
+    
+    generate_list_page("Major Themes", major_theme_items,
+                      os.path.join(OUTPUT_DIR, "major-themes.html"),
+                      [("Major Themes", None)],
+                      f"{len(major_themes_index)} major theme categories")
+    print(f"Generated {len(major_themes_index)} major theme pages")
+
     # Generate category pages
     category_items = []
     for cat, cat_shows in categories_index.items():
@@ -841,7 +898,7 @@ def generate_site(force=False):
     generate_shows_index(shows, OUTPUT_DIR)
 
     # Generate main index
-    generate_index(shows, len(theaters_index), len(genres_index), len(categories_index), OUTPUT_DIR)
+    generate_index(shows, len(theaters_index), len(genres_index), len(themes_index), len(major_themes_index), len(categories_index), OUTPUT_DIR)
 
     # Save state
     save_state({'db_hash': current_hash, 'generated_at': datetime.now().isoformat()})
